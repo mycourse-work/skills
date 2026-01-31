@@ -15,7 +15,7 @@ Create structured training courses for the mycourse.work platform with rich mark
 4. Create quiz JSON files
 5. Add assets (cover image, diagrams)
 6. Validate with `pnpm validate-course <path>`
-7. Set up as git submodule and upload to R2
+7. Create GitHub repo and zip of course content
 
 ## Course Directory Structure
 
@@ -179,15 +179,19 @@ pnpm validate-course content/tenants/{tenant}/courses/{course-id}
 
 Checks manifest structure, markdown quality (headings, images), mermaid syntax, and quiz correctness. Fix all errors before uploading.
 
-## Git Submodule Setup
+## Publishing
 
-After creating course content:
+After validation passes, create a GitHub repo and a zip archive of the course content:
 
 ```bash
-cd content/tenants/{tenant}/courses/{course-id}
+# Create zip archive
+cd content/tenants/{tenant}/courses/
+zip -r {course-id}.zip {course-id}/
+
+# Create GitHub repo and push
+cd {course-id}
 git init && git add -A && git commit -m "feat: initial course content"
 gh repo create mycourse-work/{tenant}-{course-id} --private --source=. --push
-cd /path/to/platform
-rm -rf content/tenants/{tenant}/courses/{course-id}
-git submodule add https://github.com/mycourse-work/{tenant}-{course-id}.git content/tenants/{tenant}/courses/{course-id}
 ```
+
+Provide the user with both the zip file path and the GitHub repo URL.
