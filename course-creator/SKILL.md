@@ -181,17 +181,16 @@ Checks manifest structure, markdown quality (headings, images), mermaid syntax, 
 
 ## Publishing
 
-After validation passes, create a GitHub repo and a zip archive of the course content:
+After validation passes, initialize a local git repo and create a zip archive:
 
 ```bash
-# Create zip archive
-cd content/tenants/{tenant}/courses/
-zip -r {course-id}.zip {course-id}/
-
-# Create GitHub repo and push
-cd {course-id}
+# Initialize local git repo
+cd content/tenants/{tenant}/courses/{course-id}
 git init && git add -A && git commit -m "feat: initial course content"
-gh repo create mycourse-work/{tenant}-{course-id} --private --source=. --push
+
+# Create zip archive
+cd ..
+zip -r {course-id}.zip {course-id}/ -x '{course-id}/.git/*'
 ```
 
-Provide the user with both the zip file path and the GitHub repo URL.
+Provide the user with the zip file path.
