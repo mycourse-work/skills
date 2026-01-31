@@ -4,27 +4,23 @@
 
 ## Available Skills
 
+### course-creator
+
+Guides creation of complete training courses — directory structure, manifest configuration, lesson markdown with rich content features (callouts, mermaid diagrams, math, code blocks, video embeds), and quiz authoring (multiple choice, multiple response, matching).
+
+```json
+{
+  "skills": ["mycourse-work/skills/course-creator"]
+}
+```
+
 ### course-validator
 
-Validates course content for the mycourse.work platform. Checks:
-
-- **Manifest structure** — required fields, sequential indices, matching IDs, valid paths
-- **Markdown quality** — heading hierarchy, empty headings, image references
-- **Mermaid diagrams** — syntax validation via `mermaid.parse()`
-- **Quiz correctness** — question types, answer fields, `correct` vs `isCorrect`
-- **Directory structure** — naming patterns, orphaned files
-
-#### Usage
-
-Copy `scripts/validate-course.ts` into your platform repo, then:
+Validates course content: manifest structure, markdown quality (heading hierarchy, image references), mermaid diagram syntax, and quiz correctness.
 
 ```bash
 pnpm validate-course <path-to-course-folder>
 ```
-
-#### As a Claude Code Skill
-
-Add this repo as a skill in your Claude Code config:
 
 ```json
 {
@@ -35,17 +31,23 @@ Add this repo as a skill in your Claude Code config:
 ## Structure
 
 ```
-course-validator/
-├── SKILL.md                          # Skill metadata and instructions
-├── scripts/
-│   └── validate-course.ts            # Validator script (tsx)
+course-creator/
+├── SKILL.md
 └── references/
-    └── course-structure.md           # Course format reference
+    ├── manifest-schema.md
+    └── quiz-schema.md
+
+course-validator/
+├── SKILL.md
+├── scripts/
+│   └── validate-course.ts
+└── references/
+    └── course-structure.md
 ```
 
 ## Dependencies
 
-The validator requires these packages (already installed in the mycourse.work platform):
+The validator script requires these packages (already installed in the mycourse.work platform):
 
 - `marked` — Markdown lexer for content validation
 - `mermaid` — Diagram syntax validation
