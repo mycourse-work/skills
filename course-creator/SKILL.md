@@ -15,7 +15,7 @@ Create structured training courses for the mycourse.work platform with rich mark
 4. Create quiz JSON files
 5. Add assets (cover image, diagrams)
 6. Validate with `pnpm validate-course <path>`
-7. Create GitHub repo and zip of course content
+7. Create a zip of the course: `cd <parent-dir> && zip -r <course-id>.zip <course-id>/`
 
 ## Course Directory Structure
 
@@ -179,18 +179,13 @@ pnpm validate-course content/tenants/{tenant}/courses/{course-id}
 
 Checks manifest structure, markdown quality (headings, images), mermaid syntax, and quiz correctness. Fix all errors before uploading.
 
-## Publishing
+## Packaging
 
-After validation passes, initialize a local git repo and create a zip archive:
+After validation passes, create a zip archive of the course folder:
 
 ```bash
-# Initialize local git repo
-cd content/tenants/{tenant}/courses/{course-id}
-git init && git add -A && git commit -m "feat: initial course content"
-
-# Create zip archive
-cd ..
-zip -r {course-id}.zip {course-id}/ -x '{course-id}/.git/*'
+cd content/tenants/{tenant}/courses
+zip -r {course-id}.zip {course-id}/
 ```
 
-Provide the user with the zip file path.
+The zip contains everything needed to import the course: manifest, lessons, quizzes, and assets.
