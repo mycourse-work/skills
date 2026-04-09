@@ -6,7 +6,7 @@
 
 ### course-creator
 
-Guides creation of complete training courses — directory structure, manifest configuration, lesson markdown with rich content features (callouts, mermaid diagrams, math, code blocks, video embeds), and quiz authoring (multiple choice, multiple response, matching).
+Guides creation of complete training courses using the module-first architecture — standalone modules with manifests, course definitions referencing module IDs, lesson markdown with rich content features (callouts, inline HTML diagrams, math, code blocks, video embeds), quiz authoring (multiple choice, multiple response, matching), and deployment to R2/D1 via GitHub or upload scripts.
 
 ```json
 {
@@ -16,16 +16,28 @@ Guides creation of complete training courses — directory structure, manifest c
 
 ### course-validator
 
-Validates course content: manifest structure, markdown quality (heading hierarchy, image references), mermaid diagram syntax, and quiz correctness.
+Validates course content: module manifests, course definitions, markdown quality (heading hierarchy, image references), and quiz correctness.
 
 ```bash
-pnpm validate-course <path-to-course-folder>
+pnpm validate-course content/{tenantId}
 ```
 
 ```json
 {
   "skills": ["mycourse-work/skills/course-validator"]
 }
+```
+
+### image-generator
+
+Generates branded training images using the Gemini image generation API. Reads `brand.md` and `branding/logo.png` from a tenant's content repo, supports reference images, configurable style/size/aspect ratio.
+
+```bash
+npx tsx .claude/skills/image-generator/scripts/generate-image.ts \
+  --repo /tmp/dt-repo \
+  --prompt "Infographic showing the WALES mixing order" \
+  --style infographic \
+  --output assets/wales-mixing.png
 ```
 
 ## Structure
@@ -50,5 +62,4 @@ course-validator/
 The validator script requires these packages (already installed in the mycourse.work platform):
 
 - `marked` — Markdown lexer for content validation
-- `mermaid` — Diagram syntax validation
-- `jsdom` — Minimal DOM for mermaid's parser
+- `jsdom` — Minimal DOM for validation
