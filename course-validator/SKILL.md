@@ -23,7 +23,7 @@ python3 validate_course.py --changed-from changed.txt --github   # what CI runs
 |---|---|
 | `targets` | Repo root, course folder or `course.json`, module folder or `manifest.json`. |
 | `--repo-root DIR` | The repo root, if the script cannot find it from the targets. |
-| `--changed FILE...` | Validate what these files affect: a changed module also validates every course that lists it; a changed widget validates every course. Deleted and unrelated paths are skipped. |
+| `--changed FILE...` | Validate what these files affect: a changed module also validates every course that lists it; a changed widget validates every course. Pass deleted files too: a deleted module makes it check every course that still lists it. Unrelated paths are skipped. |
 | `--changed-from LIST` | The same, reading the file list (one per line) from a file. |
 | `--json` | Print `{ok, version, errors, warnings, issues, stats}`. |
 | `--github` | Also print `::error` / `::warning` annotations for GitHub Actions. |

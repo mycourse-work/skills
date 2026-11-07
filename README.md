@@ -80,9 +80,11 @@ echo "<sha256>  /tmp/validate_course.py" | sha256sum -c -
 In GitHub Actions, the content repos use a `validate.yml` workflow that runs only on pull requests that change `courses/`, `modules/` or `widgets/`, and validates only what changed:
 
 ```yaml
-- run: git diff --name-only --diff-filter=d "origin/${{ github.base_ref }}...HEAD" > /tmp/changed.txt
-- run: python3 /tmp/validate_course.py --repo-root . --changed-from /tmp/changed.txt --github
+- run: git diff --name-only "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed.txt"   # include deleted files
+- run: python3 -I "$RUNNER_TEMP/validate_course.py" --repo-root . --changed-from "$RUNNER_TEMP/changed.txt" --github
 ```
+
+Keep deleted files in the list: a deleted module still makes the validator check every course that lists it.
 
 **To upgrade**, change `VALIDATOR_REF` in the content repo's `validate.yml` in a pull request, and fix any new errors in the same pull request.
 

@@ -432,6 +432,15 @@ class ChangedFiles(Base):
         courses, modules = vc.resolve_changed(["README.md", "modules/deleted-module/manifest.json"], self.root)
         self.assertEqual((courses, modules), ([], []))
 
+    def test_deleted_module_still_listed_fails_its_course(self) -> None:
+        import shutil
+        shutil.rmtree(self.root / "modules" / "lonely-module")
+        listing = self.root / "changed.txt"
+        listing.write_text("modules/lonely-module/manifest.json\n", encoding="utf-8")
+        result, status = vc.run(vc.parse_args(["--changed-from", str(listing), "--repo-root", str(self.root)]))
+        self.assertEqual(status, 1)
+        self.assertTrue(any("'lonely-module' not found" in e for e in result["errors"]), result["errors"])
+
     def test_changed_from_file(self) -> None:
         listing = self.root / "changed.txt"
         listing.write_text("courses/other-course/course.json\n\n", encoding="utf-8")
