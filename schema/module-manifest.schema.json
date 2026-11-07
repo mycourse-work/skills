@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/mycourse-work/skills/v1.0.0/schema/module-manifest.schema.json",
+  "title": "mycourse.work module manifest (modules/<module-id>/manifest.json)",
+  "description": "A module is a reusable unit that courses list by id. The edge router (resolveBlueprint) reads these fields and serves lesson paths from inside the module folder. Unknown fields are allowed but ignored; validate_course.py warns about them. Rules a schema cannot express (id must equal the folder name, unique lesson ids, files must exist) are in RULES.md.",
+  "type": "object",
+  "required": ["id", "title", "lessons"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "#/$defs/text", "description": "Must equal the module folder name. Kebab-case recommended. Never change after publishing: progress records point at it." },
+    "title": { "$ref": "#/$defs/text" },
+    "description": { "$ref": "#/$defs/text", "description": "Shown on the module card. Recommended." },
+    "estimatedDuration": { "$ref": "#/$defs/text" },
+    "tags": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "lessons": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/lesson" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "pattern": "\\S" },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!https?:)\\S",
+      "description": "Relative to the module folder, and must stay inside it."
+    },
+    "lesson": {
+      "type": "object",
+      "required": ["id", "title", "type"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text",
+          "not": { "pattern": "\\|\\|\\|" },
+          "description": "Unique in the module. Plain kebab-case; the platform adds the module prefix itself (no legacy '|||' ids)."
+        },
+        "title": { "$ref": "#/$defs/text" },
+        "type": { "enum": ["content", "quiz", "section"] },
+        "markdownPath": { "$ref": "#/$defs/relativePath", "description": "Lesson Markdown. Must start with '# Title' and have no YAML front matter." },
+        "quizPath": { "$ref": "#/$defs/relativePath", "description": "Quiz JSON, see quiz.schema.json." }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "content" } } }, "then": { "required": ["markdownPath"] } },
+        { "if": { "properties": { "type": { "const": "quiz" } } }, "then": { "required": ["quizPath"] } }
+      ]
+    }
+  }
+}

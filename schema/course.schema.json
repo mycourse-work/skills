@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/mycourse-work/skills/v1.0.0/schema/course.schema.json",
+  "title": "mycourse.work course (courses/<course-id>/course.json)",
+  "description": "A course lists module ids in learner order. The platform reads these fields in the edge router (normalizeCourseJsonToBlueprint) and in sync-to-r2. Unknown fields are allowed but ignored; validate_course.py warns about them. Rules a schema cannot express (id must equal the folder name, modules must exist, welcomePath must exist) are in RULES.md.",
+  "type": "object",
+  "required": ["id", "title", "modules"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "#/$defs/text", "description": "Must equal the course folder name. Kebab-case recommended. Never change after publishing." },
+    "title": { "$ref": "#/$defs/text" },
+    "description": { "$ref": "#/$defs/text", "description": "Shown on the course card. Recommended." },
+    "coverImage": { "$ref": "#/$defs/text" },
+    "estimatedDuration": { "$ref": "#/$defs/text", "description": "Human-readable, e.g. \"2-3 hours\"." },
+    "welcomePath": { "$ref": "#/$defs/relativePath", "description": "Markdown file relative to the course folder. Shown as a Welcome lesson before module 1." },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/text" },
+      "description": "Module ids (folder names under modules/), in learner order."
+    },
+    "quizPassingThreshold": { "type": "number", "minimum": 0, "maximum": 100, "description": "Pass mark for every quiz in the course, in percent. Default 80. This is the only pass mark the platform reads." },
+    "quizMaxAttempts": { "type": "integer", "minimum": 1 },
+    "quizRevealMode": { "enum": ["immediate", "end-of-quiz", "never"], "description": "Default end-of-quiz." },
+    "contentUnitLabel": { "$ref": "#/$defs/text", "description": "Learner-facing name for a lesson, e.g. \"session\"." },
+    "contentUnitLabelPlural": { "$ref": "#/$defs/text" },
+    "sequentialProgression": { "type": "boolean" },
+    "completionRecord": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "title": { "type": "string" },
+        "heading": { "type": "string" },
+        "nameLabel": { "type": "string" },
+        "referenceLabel": { "type": "string" },
+        "requireName": { "type": "boolean" },
+        "requireCaaId": { "type": "boolean" }
+      }
+    },
+    "completionEvidence": { "enum": ["off", "warn", "enforce"], "description": "Default warn." },
+    "evidenceWordsPerMinute": { "type": "number", "exclusiveMinimum": 0 }
+  },
+  "$defs": {
+    "text": { "type": "string", "pattern": "\\S" },
+    "relativePath": { "type": "string", "pattern": "^(?!/)(?!https?:)\\S" }
+  }
+}
