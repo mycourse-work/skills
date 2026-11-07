@@ -80,7 +80,15 @@ echo "<sha256>  /tmp/validate_course.py" | sha256sum -c -
 In GitHub Actions, the content repos use a `validate.yml` workflow that runs only on pull requests that change `courses/`, `modules/` or `widgets/`, and validates only what changed:
 
 ```yaml
-- run: git diff --name-only "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed.txt"   # include deleted files
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 2          # the PR merge commit and the base branch it merges into
+    lfs: false
+    persist-credentials: false
+- run: |
+    curl -fsSL --retry 3 -o "$RUNNER_TEMP/validate_course.py" \
+      "https://raw.githubusercontent.com/mycourse-work/skills/v1.0.0/course-validator/scripts/validate_course.py"
+- run: git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"   # keeps deleted files
 - run: python3 -I "$RUNNER_TEMP/validate_course.py" --repo-root . --changed-from "$RUNNER_TEMP/changed.txt" --github
 ```
 
