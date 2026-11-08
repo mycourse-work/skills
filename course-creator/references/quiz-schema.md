@@ -1,185 +1,105 @@
-# Quiz Schema Reference
+# Quiz format (format v1)
 
-## Root Structure
+The machine-readable version is `schema/quiz.schema.json`. `schema/RULES.md` lists every rule and its severity.
+
+A quiz is a JSON file in the module folder, listed in the module manifest as a `quiz` lesson with `quizPath`.
+
+## Root
 
 ```json
 {
-  "title": "Module 1 Quiz",
+  "title": "Rules Quiz",
   "type": "quiz",
-  "passingScore": 80,
   "questions": []
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `title` | string | Yes | Quiz display title. |
-| `type` | string | Yes | Must be `"quiz"`. |
-| `passingScore` | number | Yes | Percentage 0-100 to pass. Typically 70-80. |
-| `questions` | array | Yes | Non-empty array of question objects. |
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `title` | string | yes | |
+| `type` | `"quiz"` | recommended | Nothing on the platform reads it. Missing or different → warning. |
+| `questions` | array | yes | Not empty. Question ids are unique. |
+| `passingScore` | — | **don't author** | Ignored by the player and the grader. The validator warns. |
+
+**The pass mark is set per course**, in `course.json`: `"quizPassingThreshold": 80` (default 80). When answers are revealed is also per course: `quizRevealMode`.
+
+## Question fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `id` | yes | Unique in the quiz, e.g. `q1`. |
+| `type` | yes | `MULTIPLE_CHOICE`, `MULTIPLE_RESPONSE` or `MATCHING`. |
+| `question` | yes | Plain text. `questionHtml` is optional. |
+| `answers` | yes | At least 2. |
+| `feedback` | recommended | The explanation. **This is the only feedback learners see.** `feedbackHtml` is optional. |
+| `questionNumber` | no | Integer ≥ 1. The player numbers questions by position. |
+| `image`, `imageAlt` | no | `image` is a file name in the **course** folder's `assets/` (`courses/<course>/assets/<image>`), not the module's. |
+
+Answer fields: `id` (required, unique in the question), `text` (required), `correct` (boolean), `matchText` (for `MATCHING`), and optional `textHtml` / `matchTextHtml`.
+
+- Use `correct`. **Never `isCorrect`**: the grader does not read it, so the question can never be passed. This is an error.
+- Answer-level `feedback` is never shown to learners. Put the explanation in the question's `feedback`.
+- Answer ids: `<questionId>_<letter>`, e.g. `q1_a`.
 
 ## MULTIPLE_CHOICE
 
-Single correct answer. Rendered as radio buttons.
+Exactly one answer has `correct: true`.
 
 ```json
 {
   "id": "q1",
-  "questionNumber": 1,
   "type": "MULTIPLE_CHOICE",
-  "question": "What is the maximum altitude for recreational drone flights in NZ?",
-  "questionHtml": "<p>What is the maximum altitude for recreational drone flights in NZ?</p>",
+  "question": "What is the maximum height for a Part 101 flight without a shielded operation?",
   "answers": [
-    {
-      "id": "q1_a",
-      "text": "120 metres",
-      "textHtml": "<p>120 metres</p>",
-      "correct": true
-    },
-    {
-      "id": "q1_b",
-      "text": "200 metres",
-      "textHtml": "<p>200 metres</p>",
-      "correct": false
-    },
-    {
-      "id": "q1_c",
-      "text": "400 feet",
-      "textHtml": "<p>400 feet</p>",
-      "correct": false
-    },
-    {
-      "id": "q1_d",
-      "text": "No limit",
-      "textHtml": "<p>No limit</p>",
-      "correct": false
-    }
+    { "id": "q1_a", "text": "60 m", "correct": false },
+    { "id": "q1_b", "text": "120 m", "correct": true },
+    { "id": "q1_c", "text": "400 m", "correct": false }
   ],
-  "feedback": "In New Zealand, recreational drones must fly below 120 metres (400 feet) above ground level.",
-  "feedbackHtml": "<p>In New Zealand, recreational drones must fly below 120 metres (400 feet) above ground level.</p>"
+  "feedback": "Part 101 limits flights to 120 m above ground level unless the operation is shielded."
 }
 ```
 
-Rules: Exactly 1 answer with `correct: true`. Typically 4 options.
-
 ## MULTIPLE_RESPONSE
 
-Multiple correct answers. Rendered as checkboxes. User must select all correct answers.
+At least one answer has `correct: true`. Say "Select all that apply" in the question.
 
 ```json
 {
   "id": "q2",
-  "questionNumber": 2,
   "type": "MULTIPLE_RESPONSE",
-  "question": "Select ALL that apply: Which of the following are required before a commercial drone flight?",
-  "questionHtml": "<p>Select ALL that apply: Which of the following are required before a commercial drone flight?</p>",
+  "question": "Which of these must you check before flight? Select all that apply.",
   "answers": [
-    {
-      "id": "q2_a",
-      "text": "Site risk assessment",
-      "textHtml": "<p>Site risk assessment</p>",
-      "correct": true
-    },
-    {
-      "id": "q2_b",
-      "text": "Pre-flight checklist",
-      "textHtml": "<p>Pre-flight checklist</p>",
-      "correct": true
-    },
-    {
-      "id": "q2_c",
-      "text": "Social media post",
-      "textHtml": "<p>Social media post</p>",
-      "correct": false
-    },
-    {
-      "id": "q2_d",
-      "text": "NOTAMs check",
-      "textHtml": "<p>NOTAMs check</p>",
-      "correct": true
-    }
+    { "id": "q2_a", "text": "Battery charge", "correct": true },
+    { "id": "q2_b", "text": "Airspace", "correct": true },
+    { "id": "q2_c", "text": "Your social media", "correct": false }
   ],
-  "feedback": "Commercial flights require a site risk assessment, pre-flight checklist, and NOTAMs check. Social media is not a regulatory requirement.",
-  "feedbackHtml": "<p>Commercial flights require a site risk assessment, pre-flight checklist, and NOTAMs check. Social media is not a regulatory requirement.</p>"
+  "feedback": "Battery and airspace checks are part of every pre-flight."
 }
 ```
 
-Rules: At least 1 answer with `correct: true`. Include "Select ALL that apply" in the question.
-
 ## MATCHING
 
-Match terms to definitions. Rendered as dropdowns with shuffled phrases.
+Every answer has `text` (left) and `matchText` (right). The grader checks each pair. `correct` is not needed.
 
 ```json
 {
   "id": "q3",
-  "questionNumber": 3,
   "type": "MATCHING",
-  "question": "Match each component to its function:",
-  "questionHtml": "<p>Match each component to its function:</p>",
+  "question": "Match each colour to its airspace.",
   "answers": [
-    {
-      "id": "q3_a",
-      "text": "ESC",
-      "textHtml": "<p>ESC</p>",
-      "matchText": "Controls motor speed",
-      "matchTextHtml": "<p>Controls motor speed</p>",
-      "correct": true
-    },
-    {
-      "id": "q3_b",
-      "text": "IMU",
-      "textHtml": "<p>IMU</p>",
-      "matchText": "Measures orientation and acceleration",
-      "matchTextHtml": "<p>Measures orientation and acceleration</p>",
-      "correct": true
-    },
-    {
-      "id": "q3_c",
-      "text": "GPS",
-      "textHtml": "<p>GPS</p>",
-      "matchText": "Provides position data",
-      "matchTextHtml": "<p>Provides position data</p>",
-      "correct": true
-    }
+    { "id": "q3_a", "text": "Red", "matchText": "Restricted area" },
+    { "id": "q3_b", "text": "Blue", "matchText": "Controlled airspace" }
   ],
-  "feedback": "ESCs control motor speed, IMUs measure orientation, and GPS provides position data.",
-  "feedbackHtml": "<p>ESCs control motor speed, IMUs measure orientation, and GPS provides position data.</p>"
+  "feedback": "Restricted areas need permission from the administering authority; controlled airspace needs an ATC clearance."
 }
 ```
 
-Rules: All answers must have `matchText`. All set `correct: true`. Terms appear on left, match phrases shuffled on right.
+## TRUE_FALSE (legacy)
 
-## Question Fields
+`TRUE_FALSE` is not a platform type. The player plays it as `MULTIPLE_CHOICE`, so it works, but the validator warns. For new content, use `MULTIPLE_CHOICE` with the two answers "True" and "False".
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique within quiz (e.g. `q1`, `q2`). |
-| `questionNumber` | number | No | Display number. |
-| `type` | string | Yes | `MULTIPLE_CHOICE`, `MULTIPLE_RESPONSE`, or `MATCHING`. |
-| `question` | string | Yes | Plain text question. |
-| `questionHtml` | string | No | HTML version of question. |
-| `answers` | array | Yes | At least 2 answer objects. |
-| `feedback` | string | Yes | Explanation shown after answering. |
-| `feedbackHtml` | string | No | HTML version of feedback. |
+## Good practice
 
-## Answer Fields
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique within question (e.g. `q1_a`). |
-| `text` | string | Yes | Plain text answer. |
-| `textHtml` | string | No | HTML version. |
-| `correct` | boolean | Yes | **Use `correct`, never `isCorrect`.** |
-| `matchText` | string | MATCHING only | The phrase to match against. |
-| `matchTextHtml` | string | No | HTML version of match text. |
-
-## Best Practices
-
-- 5-10 questions per module quiz
-- Mix question types for engagement
-- Test understanding, not memorization
-- Write clear, specific feedback explaining the correct answer
-- Avoid trick questions or ambiguous wording
-- For MATCHING: use 3-5 pairs, keep terms and definitions concise
-- Shuffle answer order so correct answer isn't always first
+- 5-10 questions per module quiz. Mix the types.
+- Test the lesson's learning outcomes. Use scenarios rather than recall where you can.
+- No trick wording, and no implausible distractors.

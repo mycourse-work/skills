@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/mycourse-work/skills/v1.0.0/schema/quiz.schema.json",
+  "title": "mycourse.work quiz (a module's quiz.json)",
+  "description": "Read by the player (QuizPlayer.vue) and the grader (packages/core/utils/quiz.ts). The pass mark is NOT here: it is quizPassingThreshold in course.json. Unknown fields are allowed but ignored; validate_course.py warns about them. Unique question and answer ids are in RULES.md (a schema cannot express them).",
+  "type": "object",
+  "required": ["title", "questions"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "title": { "$ref": "#/$defs/text" },
+    "type": { "description": "Optional. Nothing on the platform reads it; validate_course.py warns when it is not \"quiz\"." },
+    "passingScore": {
+      "deprecated": true,
+      "description": "Ignored by the player and the grader. Use quizPassingThreshold in course.json. validate_course.py warns when it is present."
+    },
+    "questions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/question" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "pattern": "\\S" },
+    "question": {
+      "type": "object",
+      "required": ["id", "type", "question", "answers"],
+      "properties": {
+        "id": { "$ref": "#/$defs/text", "description": "Unique in the quiz. Never change after publishing." },
+        "questionNumber": { "type": "integer", "minimum": 1, "description": "Optional. The player numbers questions by position." },
+        "type": {
+          "anyOf": [
+            { "enum": ["MULTIPLE_CHOICE", "MULTIPLE_RESPONSE", "MATCHING"] },
+            { "const": "TRUE_FALSE", "deprecated": true, "description": "Not a platform type; plays as MULTIPLE_CHOICE. Use MULTIPLE_CHOICE." }
+          ]
+        },
+        "question": { "$ref": "#/$defs/text" },
+        "questionHtml": { "type": "string" },
+        "image": { "type": "string", "description": "File name in the course folder assets/ (courses/<course>/assets/<image>); the player resolves it against the course showing the quiz, not the module. validate_course.py warns when the file is missing." },
+        "imageAlt": { "type": "string" },
+        "feedback": { "type": "string", "description": "Explanation shown to the learner (when the course's quizRevealMode allows). Recommended. This is the only feedback the player shows." },
+        "feedbackHtml": { "type": "string" },
+        "matchOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text"],
+            "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "textHtml": { "type": "string" } }
+          }
+        },
+        "answers": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/answer" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "enum": ["MULTIPLE_CHOICE", "TRUE_FALSE"] } } },
+          "then": {
+            "properties": {
+              "answers": { "contains": { "$ref": "#/$defs/correctAnswer" }, "minContains": 1, "maxContains": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "MULTIPLE_RESPONSE" } } },
+          "then": {
+            "properties": { "answers": { "contains": { "$ref": "#/$defs/correctAnswer" }, "minContains": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "MATCHING" } } },
+          "then": {
+            "properties": { "answers": { "items": { "required": ["matchText"], "properties": { "matchText": { "$ref": "#/$defs/text" } } } } }
+          }
+        }
+      ]
+    },
+    "answer": {
+      "type": "object",
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "$ref": "#/$defs/text", "description": "Unique in the question." },
+        "answerNumber": { "type": "integer" },
+        "text": { "$ref": "#/$defs/text" },
+        "textHtml": { "type": "string" },
+        "correct": { "type": "boolean", "description": "The grader counts only correct === true. Not used for MATCHING." },
+        "isCorrect": false,
+        "matchText": { "type": "string", "description": "MATCHING only: the phrase that pairs with text." },
+        "matchTextHtml": { "type": "string" },
+        "feedback": { "type": "string", "description": "Accepted but never shown by the player. Put the explanation in the question's feedback." },
+        "feedbackHtml": { "type": "string" }
+      }
+    },
+    "correctAnswer": { "type": "object", "required": ["correct"], "properties": { "correct": { "const": true } } }
+  }
+}
