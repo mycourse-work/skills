@@ -77,7 +77,6 @@ Unknown fields are ignored by the platform. The validator warns about them, beca
   "tags": ["part101", "rules"],
   "lessons": [
     { "id": "why-rules", "title": "Why the Rules Exist", "type": "content", "markdownPath": "01-why-rules.md" },
-    { "id": "in-the-field", "title": "In the Field", "type": "section" },
     { "id": "pre-flight", "title": "Pre-flight Checks", "type": "content", "markdownPath": "02-pre-flight.md" },
     { "id": "quiz", "title": "Rules Quiz", "type": "quiz", "quizPath": "quiz.json" }
   ]
@@ -99,17 +98,15 @@ Lesson fields:
 |---|---|---|
 | `id` | yes | Unique in the module. No `\|\|\|`: the platform adds `<module>\|\|\|` itself. |
 | `title` | yes | |
-| `type` | yes | `content`, `quiz` or `section`. |
-| `markdownPath` | for `content` | Relative to the module folder, e.g. `01-why-rules.md`. Never `/courses/...`. |
+| `type` | yes | `content` or `quiz`. (`section` renders as an empty lesson in the learner player; the validator warns.) |
+| `markdownPath` | for `content` | Relative to the module folder, e.g. `01-why-rules.md`. Never `/courses/...`, a URL or `#anchor`. |
 | `quizPath` | for `quiz` | Relative to the module folder, e.g. `quiz.json`. |
-
-A `section` lesson is a heading in the lesson list. It has no file.
 
 ## Lesson Markdown
 
 - The first line is `# Lesson title`.
 - **No front matter.** The player renders the whole file, so a `---` block shows up as text. This is an error.
-- Reference images relatively: `![Alt text](./assets/diagram.webp)`.
+- Reference module images with `./`: `![Alt text](./assets/diagram.webp)`. Only `./` is relative to the lesson. A bare `assets/x` or `../assets/x` resolves under the **course** folder (`courses/<course>/assets/x`), not the module (see *Asset paths* in `schema/RULES.md`).
 - Every local file you link or embed must exist.
 - Widgets: `:::widget <name>` needs `widgets/<name>.html`, plus `title:` and `description:` props (the phone activity card).
 - Reflection `data-id`s must be unique across the whole course.

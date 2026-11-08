@@ -53,7 +53,6 @@ MANIFEST = {
     "tags": ["demo"],
     "lessons": [
         {"id": "intro", "title": "Intro", "type": "content", "markdownPath": "01-intro.md"},
-        {"id": "part-two", "title": "Part two", "type": "section"},
         {"id": "quiz", "title": "Quiz", "type": "quiz", "quizPath": "quiz.json"},
     ],
 }
@@ -203,9 +202,26 @@ class QuizRules(Base):
         self.repo.quiz["questions"][0]["questionNumber"] = "1"
         self.assertError(self.repo.run(), "questionNumber")
 
-    def test_quiz_type_required(self) -> None:
+    def test_quiz_type_is_a_warning(self) -> None:
         del self.repo.quiz["type"]
-        self.assertError(self.repo.run(), 'type must be "quiz"')
+        result = self.repo.run()
+        self.assertClean(result)
+        self.assertWarning(result, 'top-level type should be "quiz"')
+        self.repo.quiz["type"] = "lesson"
+        self.assertWarning(self.repo.run(), 'top-level type should be "quiz"')
+
+    def test_quiz_image_missing_is_a_warning(self) -> None:
+        self.repo.quiz["questions"][0]["image"] = "diagram one.png"
+        result = self.repo.run()
+        self.assertClean(result)
+        self.assertWarning(result, "image not found at courses/demo-course/assets/diagram one.png")
+        self.repo.extra_files["courses/demo-course/assets/diagram one.png"] = "png"
+        self.assertEqual(self.repo.run()["warnings"], [])
+
+    def test_quiz_image_in_module_assets_is_not_enough(self) -> None:
+        # QuizPlayer reads <course>/assets/<image>, never the module folder.
+        self.repo.quiz["questions"][0]["image"] = "pic.png"
+        self.assertWarning(self.repo.run(), "image not found at courses/demo-course/assets/pic.png")
 
     def test_is_correct_is_an_error(self) -> None:
         self.repo.quiz["questions"][0]["answers"][0]["isCorrect"] = True
@@ -329,8 +345,24 @@ class StructureRules(Base):
         self.repo.course["quizPasingThreshold"] = 80
         self.assertWarning(self.repo.run(), "quizPasingThreshold")
 
-    def test_section_lesson_needs_no_path(self) -> None:
-        self.assertClean(self.repo.run())
+    def test_section_lesson_is_a_warning(self) -> None:
+        self.repo.manifest["lessons"].insert(1, {"id": "part-two", "title": "Part two", "type": "section"})
+        result = self.repo.run()
+        self.assertClean(result)
+        self.assertWarning(result, "renders as an empty lesson in the learner player")
+
+    def test_url_lesson_paths_are_errors(self) -> None:
+        bad = ["https://example.com/01.md", "http://example.com/q.json", "//cdn.example.com/01.md",
+               "mailto:a@b.c", "#intro", "javascript:alert(1)"]
+        for value in bad:
+            with self.subTest(value=value):
+                self.repo.manifest["lessons"][0]["markdownPath"] = value
+                self.repo.manifest["lessons"][1]["quizPath"] = value
+                self.repo.course["welcomePath"] = value
+                errs = messages(self.repo.run(), "error")
+                for key in ("markdownPath", "quizPath", "welcomePath"):
+                    self.assertTrue(any(key in e and "must be a relative file path" in e for e in errs),
+                                    (key, errs))
 
     def test_lesson_rules(self) -> None:
         lessons = self.repo.manifest["lessons"]
@@ -342,9 +374,9 @@ class StructureRules(Base):
         lessons.append({"id": "nopath", "title": "No path", "type": "content"})
         lessons.append({"id": "bad-type", "title": "Bad", "type": "video"})
         result = self.repo.run()
-        for fragment in ("duplicate lesson id", "legacy '|||'", "must be relative", "inside the module folder",
-                         "quizPath does not exist", "markdownPath must be a non-empty string",
-                         "type must be content, quiz or section"):
+        for fragment in ("duplicate lesson id", "legacy '|||'", "must be a relative file path",
+                         "inside the module folder", "quizPath does not exist",
+                         "markdownPath must be a non-empty string", "type must be content or quiz"):
             self.assertError(result, fragment)
 
 
@@ -397,6 +429,98 @@ class MarkdownRules(Base):
     def test_reflection_ids_unique_across_course(self) -> None:
         self.repo.lesson = LESSON + '<div class="reflection" data-id="demo-reflection"></div>\n'
         self.assertError(self.repo.run(), "duplicate reflection data-id")
+
+
+class AssetPaths(Base):
+    """Image and link targets resolve the way LessonRenderer.vue resolveAssetPath does."""
+
+    def lesson_with(self, *refs: str) -> None:
+        self.repo.lesson = "# Intro\n\n" + "\n\n".join(refs) + "\n"
+
+    def test_dot_slash_is_lesson_folder(self) -> None:
+        self.lesson_with("![a](./assets/pic.png)", '<img src="./assets/pic.png">')
+        self.assertEqual(self.repo.run()["warnings"], [])
+
+    def test_dot_slash_in_a_lesson_subfolder(self) -> None:
+        self.repo.manifest["lessons"][0]["markdownPath"] = "lessons/01-intro.md"
+        self.repo.extra_files["modules/demo-module/lessons/01-intro.md"] = "# Intro\n\n![a](./assets/pic.png)\n"
+        # ./ is the lesson file's folder (lessons/), which has no assets/.
+        self.assertError(self.repo.run(), "referenced file does not exist: ./assets/pic.png")
+
+    def test_bare_path_resolves_under_the_course_not_the_module(self) -> None:
+        self.lesson_with("![a](assets/pic.png)")
+        self.assertError(self.repo.run(), "the player resolves it to courses/demo-course/assets/pic.png")
+        self.repo.extra_files["courses/demo-course/assets/pic.png"] = "png"
+        self.assertClean(self.repo.run())
+
+    def test_dot_dot_assets_resolves_under_the_course(self) -> None:
+        self.lesson_with("![a](../assets/pic.png)")
+        self.assertError(self.repo.run(), "courses/demo-course/assets/pic.png")
+        self.repo.extra_files["courses/demo-course/assets/pic.png"] = "png"
+        self.assertClean(self.repo.run())
+
+    def test_leading_dot_dots_are_all_dropped(self) -> None:
+        # ../../assets/x is NOT repo-root assets/: the player drops every leading ../ and reads courses/<c>/assets/x.
+        self.repo.extra_files["assets/pic.png"] = "png"
+        self.lesson_with("![a](../../assets/pic.png)")
+        self.assertError(self.repo.run(), "courses/demo-course/assets/pic.png")
+
+    def test_course_relative_path_is_checked_in_every_course(self) -> None:
+        self.repo.extra_files["courses/other-course/course.json"] = json.dumps(
+            {"id": "other-course", "title": "Other", "description": "d", "modules": ["demo-module"]})
+        self.repo.extra_files["courses/demo-course/assets/pic.png"] = "png"
+        self.lesson_with("![a](assets/pic.png)")
+        errs = messages(self.repo.run(), "error")
+        self.assertTrue(any("courses/other-course/assets/pic.png" in e for e in errs), errs)
+        self.assertFalse(any("courses/demo-course/assets/pic.png" in e for e in errs), errs)
+
+    def test_module_no_course_lists_is_a_warning(self) -> None:
+        self.repo.course["modules"] = []  # course errors, but the module is validated alone
+        self.lesson_with("![a](assets/pic.png)")
+        self.assertWarning(self.repo.run(), "no course lists this module")
+
+    def test_welcome_dot_slash_is_course_folder(self) -> None:
+        self.repo.extra_files["courses/demo-course/welcome.md"] = "# Welcome\n\n![a](./assets/w.png)\n"
+        self.assertError(self.repo.run(), "referenced file does not exist: ./assets/w.png")
+        self.repo.extra_files["courses/demo-course/assets/w.png"] = "png"
+        self.assertClean(self.repo.run())
+
+    def test_image_with_spaces_like_fix_image_url_spaces(self) -> None:
+        self.repo.extra_files["modules/demo-module/assets/my pic.png"] = "png"
+        self.lesson_with("![a](./assets/my pic.png)", "![b](./assets/my%20pic.png)")
+        result = self.repo.run()
+        self.assertClean(result)
+        self.assertEqual(result["warnings"], [])
+
+    def test_image_with_spaces_and_a_title_breaks_in_the_player(self) -> None:
+        # fixImageUrlSpaces turns every space into %20, so the title becomes part of the file name.
+        self.lesson_with('![a](./assets/pic.png "A title")')
+        self.assertError(self.repo.run(), "referenced file does not exist")
+
+    def test_image_title_after_encoded_space_is_a_title(self) -> None:
+        self.repo.extra_files["modules/demo-module/assets/my pic.png"] = "png"
+        self.lesson_with('![a](./assets/my%20pic.png "A title")')
+        self.assertClean(self.repo.run())
+
+    def test_link_with_title_and_link_with_spaces(self) -> None:
+        self.lesson_with('[a](./assets/pic.png "Title")')
+        self.assertEqual(self.repo.run()["warnings"], [])
+        self.lesson_with("[a](./assets/my pic.png)")
+        result = self.repo.run()
+        self.assertClean(result)
+        self.assertWarning(result, "renders as plain text")
+
+    def test_other_schemes_warn(self) -> None:
+        self.lesson_with("[call](tel:+6491234567)", "[x](BLOB:abc) [y](Data:image/png;base64,AA) [z](//cdn.example.com/a.png)")
+        result = self.repo.run()
+        self.assertClean(result)
+        warns = messages(result, "warning")
+        self.assertEqual(len(warns), 1, warns)
+        self.assertIn("rewrites this one as a course file path", warns[0])
+
+    def test_escape_outside_repo(self) -> None:
+        self.lesson_with("![a](./../../../../etc/passwd)")
+        self.assertError(self.repo.run(), "escapes the repository")
 
     def test_reflection_ids_unique_across_modules(self) -> None:
         self.repo.course["modules"].append("second-module")
@@ -474,6 +598,10 @@ class Cli(Base):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["version"], vc.VERSION)
 
+    def test_annotation_file_property_is_escaped(self) -> None:
+        self.assertEqual(vc.escape_property("a:b,c%d\ne"), "a%3Ab%2Cc%25d%0Ae")
+        self.assertEqual(vc.escape_data("50%: a,b\r\n"), "50%25: a,b%0D%0A")
+
     def test_usage_errors(self) -> None:
         self.assertEqual(self.cli().returncode, 2)
         with tempfile.TemporaryDirectory() as empty:
@@ -523,8 +651,29 @@ class SchemaAgreement(Base):
     def test_course_optional_fields(self) -> None:
         self.check(lambda r: [r.course.pop(k) for k in ("description", "estimatedDuration", "welcomePath")], True)
 
-    def test_quiz_type_required(self) -> None:
-        self.check(lambda r: r.quiz.pop("type"), False)
+    def test_quiz_type_optional(self) -> None:
+        self.check(lambda r: r.quiz.pop("type"), True)
+
+    def test_quiz_type_other_value_allowed(self) -> None:
+        self.check(lambda r: r.quiz.update(type="lesson"), True)
+
+    def test_section_lesson_allowed(self) -> None:
+        self.check(lambda r: r.manifest["lessons"].append({"id": "s", "title": "S", "type": "section"}), True)
+
+    def test_url_lesson_paths(self) -> None:
+        cases = [("lesson", "markdownPath"), ("quiz", "quizPath"), ("course", "welcomePath")]
+        for value in ("https://example.com/x.md", "HTTP://example.com/x.md", "//cdn.example.com/x.md",
+                      "mailto:a@b.c", "#intro", "tel:123"):
+            for where, key in cases:
+                with self.subTest(value=value, key=key):
+                    self.tearDown()
+                    self.setUp()
+
+                    def mutate(r, where=where, key=key, value=value):
+                        target = {"lesson": r.manifest["lessons"][0], "quiz": r.manifest["lessons"][1],
+                                  "course": r.course}[where]
+                        target[key] = value
+                    self.check(mutate, False)
 
     def test_is_correct(self) -> None:
         self.check(lambda r: r.quiz["questions"][0]["answers"][0].update(isCorrect=True), False)

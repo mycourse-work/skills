@@ -37,9 +37,10 @@ Exit status: `0` no errors (warnings are allowed), `1` errors, `2` usage problem
 
 - A course or module `id` is not the same as its folder name
 - A module listed in `course.json` does not exist
-- A lesson path is absolute (`/courses/...`) or points to a missing file
+- A lesson path is absolute (`/courses/...`), a URL, `mailto:` or `#anchor`, or points to a missing file
+- An image or link points to a missing file. Only `./` is lesson-relative; a bare `assets/x` resolves under the course folder
 - A lesson starts with front matter (`---`)
-- A quiz has no `"type": "quiz"`, an answer uses `isCorrect`, or a `MULTIPLE_CHOICE` question does not have exactly one correct answer
+- An answer uses `isCorrect`, or a `MULTIPLE_CHOICE` question does not have exactly one correct answer
 - A `:::widget` names a widget that is not in `widgets/`
 - A reflection `data-id` is used twice in one course
 
@@ -48,6 +49,8 @@ Exit status: `0` no errors (warnings are allowed), `1` errors, `2` usage problem
 - `passingScore` in a quiz: it is ignored. The pass mark is `quizPassingThreshold` in `course.json`
 - A question has no question-level `feedback` (answer-level feedback is never shown)
 - `TRUE_FALSE` question type: it plays as `MULTIPLE_CHOICE`
+- A `section` lesson: the learner player shows it as an empty lesson
+- A quiz with no top-level `"type": "quiz"` (nothing reads it), or a question `image` missing from `courses/<course>/assets/`
 - The first line of a lesson is not `# Title`
 - A missing course or module `description`, or an unknown field (often a typo)
 - A widget with no `title:` / `description:`, or a widget that does not handle the full-screen protocol

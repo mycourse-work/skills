@@ -15,6 +15,9 @@ The platform code is the source of truth. If this file and the platform disagree
 | `workers/edge-router/src/index.ts`: `normalizeCourseJsonToBlueprint`, `resolveBlueprint` | `course.json` and `modules/<id>/manifest.json`. It prefixes lesson paths with `/courses/<course>/@modules/<module>/`, so the paths must be relative. Lesson ids become `<module>\|\|\|<lesson>`. |
 | `mycourse-work/.github` → `sync-to-r2.yml` | It copies files by **folder name**, but it registers the course and module by their **`id`**. So the `id` must equal the folder name. It stores `title`, `description` and `coverImage`. |
 | `packages/core/components/course/LessonRenderer.vue` (`marked.parse` on the raw file, ~l.917) | The whole lesson file is rendered as-is. Front matter shows up as text. |
+| `LessonRenderer.vue` `resolveAssetPath` and `fixImageUrlSpaces` | How image, link and `src=`/`href=` targets resolve (see **Asset paths** below). |
+| `packages/core/components/course/QuizPlayer.vue` `questionImagePath` | A question `image` is read from `<course>/assets/<image>`. |
+| Learner lesson page | Has no `section` lesson support: a `section` entry shows as an empty lesson. |
 | `packages/core/components/course/QuizPlayer.vue` | The player handles `MULTIPLE_RESPONSE` and `MATCHING` specially. Every other type is played as single choice. It shows only question-level `feedback` / `feedbackHtml`. |
 | `packages/core/utils/quiz.ts` | The grader counts `correct === true` and uses `matchText` for `MATCHING`. The pass mark comes from course `quizPassingThreshold` (clamped 0-100, default 80). |
 | `packages/core/types/course.ts` | Question types are `MULTIPLE_CHOICE`, `MULTIPLE_RESPONSE` and `MATCHING`. |
@@ -30,7 +33,7 @@ The platform code is the source of truth. If this file and the platform disagree
 | `description` is missing | warning | no (optional) |
 | `modules` is a non-empty array of strings, with no duplicates | error | yes |
 | Every listed module exists at `modules/<id>/manifest.json` | error | no |
-| `welcomePath` (optional) is relative and the file exists | error | relative only |
+| `welcomePath` (optional) is a relative file path (not a URL, `//host`, `mailto:`, `#anchor` or `/root` path) and the file exists | error | relative only |
 | `quizPassingThreshold` is a number from 0 to 100 | error | yes |
 | `quizMaxAttempts` is an integer ≥ 1 | error | yes |
 | `quizRevealMode` is `immediate`, `end-of-quiz` or `never` | error | yes |
@@ -49,10 +52,11 @@ The platform code is the source of truth. If this file and the platform disagree
 | `lessons` is a non-empty array | error | yes |
 | Lesson `id` is unique in the module | error | no |
 | Lesson `id` contains `\|\|\|` (the old format) | error | yes |
-| Lesson `type` is `content`, `quiz` or `section` | error | yes |
+| Lesson `type` is `content` or `quiz` | error | yes |
+| Lesson `type` is `section`; it renders as an empty lesson in the learner player | warning | allowed, marked deprecated |
 | A `content` lesson has `markdownPath`; a `quiz` lesson has `quizPath` | error | yes |
-| A `section` lesson needs no path (it is a heading in the lesson list) | ok | yes |
-| The path is relative, stays inside the module folder, and the file exists | error | relative only |
+| `markdownPath` / `quizPath` is a URL, `//host`, `mailto:` (any `scheme:`), `#anchor` or `/root` path | error | yes |
+| The path stays inside the module folder, and the file exists | error | no |
 
 ## Lesson Markdown
 
@@ -61,8 +65,10 @@ The platform code is the source of truth. If this file and the platform disagree
 | The file is empty | error |
 | The file starts with front matter (`---`); the player would show it as text | error |
 | The first line is not `# Title` | warning |
-| A local image, link or `src=` points to a file that does not exist | error |
+| A local image, link, `src=` or `href=` points to a file that does not exist, resolved as the player does (see **Asset paths**) | error |
 | A link starts with `/` (root-relative; it does not resolve on the CDN) | warning |
+| A link uses a scheme other than `http`, `https`, `data`, `blob` or `mailto` (e.g. `tel:`); the player rewrites it as a course file path | warning |
+| A Markdown link target has a space and no title, so marked shows it as plain text | warning |
 | `:::widget <name>` has a bad name, or there is no `widgets/<name>.html` | error |
 | `fullscreen:` is not `phone`, `always` or `off` | error |
 | `:::widget` has no `title:` or no `description:` prop | warning |
@@ -70,12 +76,28 @@ The platform code is the source of truth. If this file and the platform disagree
 
 Links inside fenced code blocks are not checked.
 
+### Asset paths
+
+The validator copies `resolveAssetPath` in `LessonRenderer.vue`:
+
+| Target | Resolves to | Use it? |
+|---|---|---|
+| `./x` | the lesson file's folder + `x` (for a module lesson at the module root: `modules/<m>/x`; for the welcome lesson: `courses/<c>/x`) | **Yes. The only lesson-relative form.** |
+| `../assets/x` | `courses/<c>/assets/x` | Only for course files |
+| `../x`, `../../x` | `courses/<c>/x` (every leading `../` is dropped) | No |
+| `x`, `assets/x` (no prefix) | `courses/<c>/x` (the **course** folder, not the module) | No |
+| `http(s):`, `data:`, `blob:`, `mailto:`, `//host`, `#anchor` | unchanged | |
+
+`<c>` is the course showing the lesson. A module can be in more than one course, so a course-relative path is checked against **every** course that lists the module. A target that contains `%` is taken as already URL-encoded.
+
+Images first go through `fixImageUrlSpaces`: if the target has a space and no `%20`, every space becomes `%20` and the whole target is the file name (so `![a](./my pic.png)` works, but `![a](./pic.png "Title")` does not). Links do not: `[a](./my pic.pdf)` is plain text.
+
 ## quiz.json
 
 | Rule | Severity | Schema |
 |---|---|---|
 | `title` is a non-empty string | error | yes |
-| Top-level `type` is `"quiz"` | error | yes |
+| Top-level `type` is missing or not `"quiz"` (nothing on the platform reads it) | warning | optional |
 | `passingScore` is present; it is **ignored**, and the pass mark is course `quizPassingThreshold` | warning | allowed, marked deprecated |
 | `questions` is a non-empty array, and question ids are unique | error | non-empty only |
 | `question` text is a non-empty string | error | yes |
@@ -91,6 +113,7 @@ Links inside fenced code blocks are not checked.
 | `MULTIPLE_RESPONSE`: at least one answer has `correct: true` | error | yes |
 | `MATCHING`: every answer has `matchText` | error | yes |
 | An answer has no `correct` (not `MATCHING`) | warning | no |
+| A question `image` is not a file at `courses/<c>/assets/<image>` for every course using the module | warning | no |
 
 "Schema: no" means a JSON Schema cannot express the rule (file existence, folder names, uniqueness of a field across objects). Only the validators check those rules.
 

@@ -17,7 +17,7 @@ A quiz is a JSON file in the module folder, listed in the module manifest as a `
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `title` | string | yes | |
-| `type` | `"quiz"` | yes | Missing or different → error. |
+| `type` | `"quiz"` | recommended | Nothing on the platform reads it. Missing or different → warning. |
 | `questions` | array | yes | Not empty. Question ids are unique. |
 | `passingScore` | — | **don't author** | Ignored by the player and the grader. The validator warns. |
 

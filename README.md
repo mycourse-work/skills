@@ -61,40 +61,48 @@ A schema cannot check everything (folder names, that files exist, unique ids acr
 
 ## Pinning the validator
 
-Content repos must run a **tagged** version, so a change here never breaks their pull requests without warning. Download the file at a tag:
+Content repos must run a **pinned** version, so a change here never breaks their pull requests without warning. Pin by the **40-character commit SHA** of the release tag, not the tag name (a tag can be moved), and check the file's SHA-256 after the download:
 
 ```bash
-VALIDATOR_REF=v1.0.0
+VALIDATOR_REF=<40-char commit SHA>   # v1.0.0
+VALIDATOR_SHA256=<sha256 of validate_course.py at that commit>
 curl -fsSL -o /tmp/validate_course.py \
   "https://raw.githubusercontent.com/mycourse-work/skills/${VALIDATOR_REF}/course-validator/scripts/validate_course.py"
-python3 /tmp/validate_course.py --version     # validate_course.py 1.0.0
-python3 /tmp/validate_course.py .
+echo "${VALIDATOR_SHA256}  /tmp/validate_course.py" | sha256sum -c -
+python3 -I /tmp/validate_course.py --version     # validate_course.py 1.0.0
+python3 -I /tmp/validate_course.py .
 ```
 
-For a stronger pin, use the commit SHA of the tag instead of the tag name, or check the file's SHA-256 after the download:
+Get both values for a tag:
 
 ```bash
-echo "<sha256>  /tmp/validate_course.py" | sha256sum -c -
+git rev-parse 'v1.0.0^{commit}'
+git show 'v1.0.0:course-validator/scripts/validate_course.py' | sha256sum
 ```
 
 In GitHub Actions, the content repos use a `validate.yml` workflow that runs only on pull requests that change `courses/`, `modules/` or `widgets/`, and validates only what changed:
 
 ```yaml
-- uses: actions/checkout@v4
-  with:
-    fetch-depth: 2          # the PR merge commit and the base branch it merges into
-    lfs: false
-    persist-credentials: false
-- run: |
-    curl -fsSL --retry 3 -o "$RUNNER_TEMP/validate_course.py" \
-      "https://raw.githubusercontent.com/mycourse-work/skills/v1.0.0/course-validator/scripts/validate_course.py"
-- run: git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"   # keeps deleted files
-- run: python3 -I "$RUNNER_TEMP/validate_course.py" --repo-root . --changed-from "$RUNNER_TEMP/changed.txt" --github
+env:
+  VALIDATOR_REF: <40-char commit SHA>   # v1.0.0
+  VALIDATOR_SHA256: <sha256>
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 2          # the PR merge commit and the base branch it merges into
+      lfs: false
+      persist-credentials: false
+  - run: |
+      curl -fsSL --retry 3 -o "$RUNNER_TEMP/validate_course.py" \
+        "https://raw.githubusercontent.com/mycourse-work/skills/${VALIDATOR_REF}/course-validator/scripts/validate_course.py"
+      echo "${VALIDATOR_SHA256}  $RUNNER_TEMP/validate_course.py" | sha256sum -c -
+  - run: git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"   # keeps deleted files
+  - run: python3 -I "$RUNNER_TEMP/validate_course.py" --repo-root . --changed-from "$RUNNER_TEMP/changed.txt" --github
 ```
 
 Keep deleted files in the list: a deleted module still makes the validator check every course that lists it.
 
-**To upgrade**, change `VALIDATOR_REF` in the content repo's `validate.yml` in a pull request, and fix any new errors in the same pull request.
+**To upgrade**, change `VALIDATOR_REF` (and the tag comment) and `VALIDATOR_SHA256` in the content repo's `validate.yml` in a pull request, and fix any new errors in the same pull request.
 
 Versions follow `schema/RULES.md`: a patch fixes a check, a minor adds warnings or optional fields, a major adds or changes an error. `VERSION` in `validate_course.py` equals the tag.
 

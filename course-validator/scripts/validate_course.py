@@ -25,6 +25,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 VERSION = "1.0.0"
@@ -34,7 +35,9 @@ VERSION = "1.0.0"
 PLATFORM_QUESTION_TYPES = {"MULTIPLE_CHOICE", "MULTIPLE_RESPONSE", "MATCHING"}
 # Not a platform type. The player falls through to single choice for it.
 LEGACY_QUESTION_TYPES = {"TRUE_FALSE"}
-LESSON_TYPES = {"content", "quiz", "section"}
+LESSON_TYPES = {"content", "quiz"}
+# Accepted by the edge router, but the learner player has no section support: it shows an empty lesson.
+LEGACY_LESSON_TYPES = {"section"}
 REVEAL_MODES = {"immediate", "end-of-quiz", "never"}
 EVIDENCE_MODES = {"off", "warn", "enforce"}
 FULLSCREEN_VALUES = {"phone", "always", "off"}
@@ -59,7 +62,14 @@ ANSWER_KEYS = {
 }
 
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-MARKDOWN_RESOURCE_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+# Same image match as the player's fixImageUrlSpaces (LessonRenderer.vue).
+MARKDOWN_IMAGE_RE = re.compile(r"!\[([\s\S]*?)\]\(([^)]+)\)")
+MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
+# A Markdown link destination followed by an optional title ("t", 't' or (t)).
+LINK_DEST_RE = re.compile(r"""^\s*(<[^>]*>|\S+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$""")
+SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+# Schemes resolveAssetPath (LessonRenderer.vue) passes through untouched.
+EXTERNAL_SCHEMES = ("http://", "https://", "data:", "blob:", "mailto:")
 HTML_SOURCE_RE = re.compile(r"\b(?:src|href)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 # Same block match as the player's LessonRenderer: name line, then props up to the closing :::.
 WIDGET_BLOCK_RE = re.compile(r":::widget\s+([^\n]+?)[ \t]*\n([\s\S]*?):::")
@@ -78,6 +88,12 @@ class Report:
         self.issues: List[Dict[str, str]] = []
         self.stats = {"courses": 0, "modules": 0, "contentLessons": 0, "quizzes": 0, "questions": 0}
         self.checked_widgets: Set[Path] = set()
+        self._module_courses: Optional[Dict[str, Set[str]]] = None
+
+    def module_courses(self, repo_root: Path) -> Dict[str, Set[str]]:
+        if self._module_courses is None:
+            self._module_courses = courses_using(repo_root)
+        return self._module_courses
 
     def rel(self, path: Path) -> str:
         try:
@@ -147,19 +163,24 @@ def check_kebab(value: Optional[str], path: Path, where: str, report: Report) ->
         report.warn(path, f"{where}id should be kebab-case: {value!r}")
 
 
-def local_path(base: Path, raw: str, repo_root: Path, path: Path, report: Report) -> Optional[Path]:
-    """Resolve a relative reference. None for external links, anchors, or paths that escape the repo."""
-    cleaned = raw.strip().split("#", 1)[0].split("?", 1)[0]
-    if not cleaned or cleaned.startswith(("//", "http://", "https://", "mailto:", "tel:", "data:", "javascript:")):
-        return None
-    if cleaned.startswith("/"):
-        report.error(path, f"path must be relative, got {raw!r}")
-        return None
-    candidate = (base / cleaned).resolve()
+def inside(candidate: Path, root: Path) -> bool:
     try:
-        candidate.relative_to(repo_root)
+        candidate.relative_to(root)
+        return True
     except ValueError:
-        report.error(path, f"path escapes the repository: {raw!r}")
+        return False
+
+
+def lesson_file_path(base: Path, raw: str, repo_root: Path, path: Path, key: str, report: Report) -> Optional[Path]:
+    """Resolve markdownPath / quizPath / welcomePath. The edge router prefixes them with the module or course
+    folder, so anything but a plain relative file path is an error (a URL, //host, mailto:, #anchor, /root)."""
+    value = raw.strip()
+    if value.startswith("/") or value.startswith("#") or SCHEME_RE.match(value):
+        report.error(path, f"{key} must be a relative file path, got {raw!r}")
+        return None
+    candidate = (base / value).resolve()
+    if not inside(candidate, repo_root):
+        report.error(path, f"{key} escapes the repository: {raw!r}")
         return None
     return candidate
 
@@ -195,7 +216,85 @@ def strip_code(text: str) -> str:
 
 # ─── Lessons, widgets ───────────────────────────────────────────────────────
 
-def validate_markdown(path: Path, repo_root: Path, reflection_ids: Dict[str, Path], report: Report) -> None:
+def markdown_refs(live: str, path: Path, report: Report) -> List[str]:
+    """Local and external references in rendered order: Markdown images, Markdown links, HTML src/href.
+
+    Images get the player's fixImageUrlSpaces treatment first: when the target has a space and no '%20', every
+    space becomes %20 and the whole target is the URL. Otherwise (and for links) marked's rules apply: a
+    destination, then an optional quoted title. Anything else is not a link to marked, so it is plain text."""
+    refs: List[str] = []
+    for m in MARKDOWN_IMAGE_RE.finditer(live):
+        target = m.group(2)
+        if " " in target and "%20" not in target:
+            target = target.replace(" ", "%20")
+        refs.append(target)
+    refs.extend(m.group(1) for m in MARKDOWN_LINK_RE.finditer(live))
+    out: List[str] = []
+    for target in refs:
+        dest = LINK_DEST_RE.match(target)
+        if not dest:
+            report.warn(path, f"link target {target.strip()!r} has spaces, so it renders as plain text; "
+                              "write the spaces as %20")
+            continue
+        out.append(dest.group(1).strip("<>"))
+    out.extend(m.group(1).strip() for m in HTML_SOURCE_RE.finditer(live))
+    return out
+
+
+def check_asset_ref(raw: str, lesson_dir: Path, course_dirs: List[Path], repo_root: Path, path: Path,
+                    report: Report) -> None:
+    """Python port of the player's resolveAssetPath (LessonRenderer.vue).
+
+    './x' is relative to the lesson file's folder (for a module lesson at the module root, the module folder).
+    Every other relative path resolves under the COURSE folder, whichever course is showing the lesson:
+    '../assets/x' -> courses/<c>/assets/x, '../../x' -> courses/<c>/x (all leading '../' dropped),
+    bare 'x/y' -> courses/<c>/x/y."""
+    value = raw.strip()
+    if not value or value.startswith("#") or value.startswith("//"):
+        return  # anchor; protocol-relative URL
+    if value.startswith("/"):
+        # Root-relative URLs (e.g. /courses/...) are legacy-format paths; they are not files in this repo.
+        report.warn(path, f"root-relative link {raw!r}: use a './' path relative to the lesson")
+        return
+    if value.lower().startswith(EXTERNAL_SCHEMES):
+        return
+    if SCHEME_RE.match(value):
+        report.warn(path, f"{raw!r}: the player only passes http, https, data, blob and mailto links through; "
+                          "it rewrites this one as a course file path")
+        return
+    cleaned = value.split("#", 1)[0].split("?", 1)[0]
+    if "%" in cleaned:
+        cleaned = unquote(cleaned)  # the player treats a '%' as already encoded
+    if not cleaned:
+        return
+    if cleaned.startswith("./"):
+        candidate = (lesson_dir / cleaned[2:]).resolve()
+        if not inside(candidate, repo_root):
+            report.error(path, f"path escapes the repository: {raw!r}")
+        elif not candidate.exists():
+            report.error(path, f"referenced file does not exist: {raw}")
+        return
+
+    if cleaned.startswith("../assets/"):
+        rel = "assets/" + cleaned[len("../assets/"):]
+    else:
+        rel = re.sub(r"^(?:\.\./)+", "", cleaned)
+    if not course_dirs:
+        report.warn(path, f"{raw!r} resolves against the course folder (only './' paths are lesson-relative), "
+                          "and no course lists this module, so it was not checked")
+        return
+    for course_dir in course_dirs:
+        candidate = (course_dir / rel).resolve()
+        shown = f"courses/{course_dir.name}/{rel}"
+        if not inside(candidate, course_dir.resolve()):
+            report.error(path, f"{raw!r} escapes the course folder")
+        elif not candidate.exists():
+            report.error(path, f"referenced file does not exist: {raw} (the player resolves it to {shown}; "
+                               "use './' for a path relative to the lesson)")
+
+
+def validate_markdown(path: Path, repo_root: Path, reflection_ids: Dict[str, Path], report: Report,
+                      course_dirs: List[Path]) -> None:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -216,16 +315,8 @@ def validate_markdown(path: Path, repo_root: Path, reflection_ids: Dict[str, Pat
         report.warn(path, "first line should be the lesson title as '# Title'")
 
     live = strip_code(text)
-    resources = [m.group(1).strip().split(maxsplit=1)[0].strip("<>\"") for m in MARKDOWN_RESOURCE_RE.finditer(live)]
-    resources.extend(m.group(1).strip() for m in HTML_SOURCE_RE.finditer(live))
-    for raw in resources:
-        if raw.startswith("/"):
-            # Root-relative URLs (e.g. /courses/...) are legacy-format paths; they are not files in this repo.
-            report.warn(path, f"root-relative link {raw!r}: use a path relative to the lesson")
-            continue
-        candidate = local_path(path.parent, raw, repo_root, path, report)
-        if candidate is not None and not candidate.exists():
-            report.error(path, f"referenced file does not exist: {raw}")
+    for raw in markdown_refs(live, path, report):
+        check_asset_ref(raw, path.parent, course_dirs, repo_root, path, report)
 
     for match in WIDGET_BLOCK_RE.finditer(live):
         name = match.group(1).strip()
@@ -319,7 +410,7 @@ def validate_answers(question: Dict[str, Any], qtype: Any, path: Path, where: st
         report.error(path, f"{where}MULTIPLE_RESPONSE needs at least one correct answer")
 
 
-def validate_quiz(path: Path, report: Report) -> None:
+def validate_quiz(path: Path, report: Report, course_dirs: List[Path]) -> None:
     quiz = load_json(path, report)
     if quiz is None:
         return
@@ -327,7 +418,8 @@ def validate_quiz(path: Path, report: Report) -> None:
     unknown_keys(quiz, QUIZ_KEYS, path, "", report)
     require_text(quiz, "title", path, "", report)
     if quiz.get("type") != "quiz":
-        report.error(path, 'top-level type must be "quiz"')
+        # Nothing on the platform reads it.
+        report.warn(path, 'top-level type should be "quiz" (the platform does not read it)')
     if "passingScore" in quiz:
         report.warn(path, "passingScore is ignored; the pass mark is quizPassingThreshold in course.json")
 
@@ -355,6 +447,10 @@ def validate_quiz(path: Path, report: Report) -> None:
         if number is not None and (not isinstance(number, int) or isinstance(number, bool) or number < 1):
             report.error(path, f"{where}questionNumber must be a whole number from 1")
 
+        image = question.get("image")
+        if image is not None:
+            check_quiz_image(image, path, where, course_dirs, report)
+
         qtype = question.get("type")
         if qtype in LEGACY_QUESTION_TYPES:
             report.warn(path, f"{where}{qtype} is not a platform type; it plays as MULTIPLE_CHOICE, so use that")
@@ -369,6 +465,18 @@ def validate_quiz(path: Path, report: Report) -> None:
             else:
                 report.warn(path, f"{where}no feedback; learners see no explanation")
         validate_answers(question, qtype, path, where, report)
+
+
+def check_quiz_image(image: Any, path: Path, where: str, course_dirs: List[Path], report: Report) -> None:
+    """QuizPlayer.vue shows <content>/<course>/assets/<image>, for whichever course is showing the quiz."""
+    if not is_text(image):
+        report.warn(path, f"{where}image must be a file name in the course assets/ folder")
+        return
+    for course_dir in course_dirs:
+        candidate = (course_dir / "assets" / image).resolve()
+        if not inside(candidate, course_dir.resolve()) or not candidate.is_file():
+            report.warn(path, f"{where}image not found at courses/{course_dir.name}/assets/{image} "
+                              "(the player reads quiz images from the course assets/ folder)")
 
 
 # ─── Module, course ─────────────────────────────────────────────────────────
@@ -392,6 +500,8 @@ def validate_module(module_dir: Path, repo_root: Path, report: Report, cache: Di
         return result
     result.ok_manifest = True
     report.stats["modules"] += 1
+    # Course-relative asset paths and quiz images depend on the course showing the module: check every one.
+    course_dirs = [repo_root / "courses" / c for c in sorted(report.module_courses(repo_root).get(module_dir.name, ()))]
     unknown_keys(manifest, MODULE_KEYS, manifest_path, "", report)
 
     module_id = require_text(manifest, "id", manifest_path, "", report)
@@ -433,21 +543,21 @@ def validate_module(module_dir: Path, repo_root: Path, report: Report, cache: Di
         require_text(lesson, "title", manifest_path, where, report)
 
         lesson_type = lesson.get("type")
-        if lesson_type not in LESSON_TYPES:
-            report.error(manifest_path, f"{where}type must be content, quiz or section, got {lesson_type!r}")
+        if lesson_type in LEGACY_LESSON_TYPES:
+            report.warn(manifest_path, f"{where}type {lesson_type!r} renders as an empty lesson in the learner "
+                                       "player; remove it or make it a content lesson")
             continue
-        if lesson_type == "section":
+        if lesson_type not in LESSON_TYPES:
+            report.error(manifest_path, f"{where}type must be content or quiz, got {lesson_type!r}")
             continue
         key = "markdownPath" if lesson_type == "content" else "quizPath"
         raw = require_text(lesson, key, manifest_path, where, report)
         if not raw:
             continue
-        target = local_path(module_dir, raw, repo_root, manifest_path, report)
+        target = lesson_file_path(module_dir, raw, repo_root, manifest_path, f"{where}{key}", report)
         if target is None:
             continue
-        try:
-            target.relative_to(module_dir)
-        except ValueError:
+        if not inside(target, module_dir):
             # The edge router serves lesson files from inside the module folder only.
             report.error(manifest_path, f"{where}{key} must stay inside the module folder: {raw!r}")
             continue
@@ -455,9 +565,9 @@ def validate_module(module_dir: Path, repo_root: Path, report: Report, cache: Di
             report.error(manifest_path, f"{where}{key} does not exist: {raw}")
         elif lesson_type == "content":
             report.stats["contentLessons"] += 1
-            validate_markdown(target, repo_root, result.reflections, report)
+            validate_markdown(target, repo_root, result.reflections, report, course_dirs)
         else:
-            validate_quiz(target, report)
+            validate_quiz(target, report, course_dirs)
     return result
 
 
@@ -508,12 +618,12 @@ def validate_course(course_file: Path, repo_root: Path, report: Report, cache: D
         if not is_text(welcome):
             report.error(course_file, "welcomePath must be a non-empty string")
         else:
-            welcome_path = local_path(course_dir, welcome, repo_root, course_file, report)
+            welcome_path = lesson_file_path(course_dir, welcome, repo_root, course_file, "welcomePath", report)
             if welcome_path is not None:
                 if not welcome_path.is_file():
                     report.error(course_file, f"welcomePath does not exist: {welcome}")
                 else:
-                    validate_markdown(welcome_path, repo_root, {}, report)
+                    validate_markdown(welcome_path, repo_root, {}, report, [course_dir])
 
     modules = course.get("modules")
     if not isinstance(modules, list) or not modules:
@@ -682,6 +792,16 @@ def run(args: argparse.Namespace) -> Tuple[Dict[str, Any], int]:
     return result, 0 if result["ok"] else 1
 
 
+def escape_data(value: str) -> str:
+    """GitHub Actions workflow-command escaping for the message."""
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def escape_property(value: str) -> str:
+    """GitHub Actions workflow-command escaping for a property such as file=."""
+    return escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     try:
@@ -692,8 +812,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.github:
         for issue in result["issues"]:
             level = "error" if issue["severity"] == "error" else "warning"
-            message = issue["message"].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-            print(f"::{level} file={issue['file']}::{message}")
+            print(f"::{level} file={escape_property(issue['file'])}::{escape_data(issue['message'])}")
     if args.json:
         print(json.dumps(result, indent=2))
     else:

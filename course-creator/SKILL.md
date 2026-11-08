@@ -52,7 +52,7 @@ See [references/manifest-schema.md](references/manifest-schema.md) for `course.j
 
 - `course.json` has `id`, `title`, `description` and `modules` (module ids in order)
 - The quiz pass mark is set once per course: `quizPassingThreshold` (default 80)
-- Module lessons have `id`, `title`, `type` (`content`, `quiz` or `section`) and a path
+- Module lessons have `id`, `title`, `type` (`content` or `quiz`) and a path. Do not use `section`: the learner player shows it as an empty lesson
 - Paths are **relative to the module folder**: `"markdownPath": "01-what-is-ai.md"`. Never `/courses/...`
 - Lesson ids are plain (`what-is-ai`). The platform adds the module prefix itself
 
@@ -130,7 +130,7 @@ Display block: `$$\sum_{i=1}^{n} x_i$$`
 ![Alt text](./assets/image.webp)
 ```
 
-Images are lazy-loaded, responsive, and rendered with rounded corners. Place files in the module's `assets/` folder and link them relatively. The validator fails a link to a file that does not exist.
+Images are lazy-loaded, responsive, and rendered with rounded corners. Place files in the module's `assets/` folder and always link them with `./` (`./assets/x.webp`). Only `./` is relative to the lesson: the player resolves a bare `assets/x.webp` or `../assets/x.webp` under the **course** folder, so it breaks for a module. The validator fails a link to a file that does not exist, resolved the way the player does.
 
 ### Video Embeds
 

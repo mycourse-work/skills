@@ -18,8 +18,8 @@
     "text": { "type": "string", "pattern": "\\S" },
     "relativePath": {
       "type": "string",
-      "pattern": "^(?!/)(?!https?:)\\S",
-      "description": "Relative to the module folder, and must stay inside it."
+      "pattern": "^(?![/#])(?![A-Za-z][A-Za-z0-9+.-]*:)\\S",
+      "description": "A relative file path inside the module folder: not a URL, //host, mailto:, #anchor or /root path."
     },
     "lesson": {
       "type": "object",
@@ -31,7 +31,12 @@
           "description": "Unique in the module. Plain kebab-case; the platform adds the module prefix itself (no legacy '|||' ids)."
         },
         "title": { "$ref": "#/$defs/text" },
-        "type": { "enum": ["content", "quiz", "section"] },
+        "type": {
+          "anyOf": [
+            { "enum": ["content", "quiz"] },
+            { "const": "section", "deprecated": true, "description": "The learner player has no section support: it renders as an empty lesson. validate_course.py warns." }
+          ]
+        },
         "markdownPath": { "$ref": "#/$defs/relativePath", "description": "Lesson Markdown. Must start with '# Title' and have no YAML front matter." },
         "quizPath": { "$ref": "#/$defs/relativePath", "description": "Quiz JSON, see quiz.schema.json." }
       },

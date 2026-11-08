@@ -4,11 +4,11 @@
   "title": "mycourse.work quiz (a module's quiz.json)",
   "description": "Read by the player (QuizPlayer.vue) and the grader (packages/core/utils/quiz.ts). The pass mark is NOT here: it is quizPassingThreshold in course.json. Unknown fields are allowed but ignored; validate_course.py warns about them. Unique question and answer ids are in RULES.md (a schema cannot express them).",
   "type": "object",
-  "required": ["title", "type", "questions"],
+  "required": ["title", "questions"],
   "properties": {
     "$schema": { "type": "string" },
     "title": { "$ref": "#/$defs/text" },
-    "type": { "const": "quiz" },
+    "type": { "description": "Optional. Nothing on the platform reads it; validate_course.py warns when it is not \"quiz\"." },
     "passingScore": {
       "deprecated": true,
       "description": "Ignored by the player and the grader. Use quizPassingThreshold in course.json. validate_course.py warns when it is present."
@@ -31,7 +31,7 @@
         },
         "question": { "$ref": "#/$defs/text" },
         "questionHtml": { "type": "string" },
-        "image": { "type": "string", "description": "File name in the course folder assets/ (courses/<course>/assets/<image>); the player resolves it against the course, not the module." },
+        "image": { "type": "string", "description": "File name in the course folder assets/ (courses/<course>/assets/<image>); the player resolves it against the course showing the quiz, not the module. validate_course.py warns when the file is missing." },
         "imageAlt": { "type": "string" },
         "feedback": { "type": "string", "description": "Explanation shown to the learner (when the course's quizRevealMode allows). Recommended. This is the only feedback the player shows." },
         "feedbackHtml": { "type": "string" },

@@ -44,6 +44,6 @@
   },
   "$defs": {
     "text": { "type": "string", "pattern": "\\S" },
-    "relativePath": { "type": "string", "pattern": "^(?!/)(?!https?:)\\S" }
+    "relativePath": { "type": "string", "pattern": "^(?![/#])(?![A-Za-z][A-Za-z0-9+.-]*:)\\S", "description": "A relative file path: not a URL, //host, mailto:, #anchor or /root path." }
   }
 }
