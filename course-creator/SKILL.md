@@ -7,48 +7,54 @@ description: Create complete training courses for the mycourse.work platform. Pr
 
 Create structured training courses for the mycourse.work platform with rich markdown content, interactive quizzes, and mermaid diagrams.
 
+The course format is **module-first** (format v1). The JSON Schemas are in `schema/` in this repo, and `schema/RULES.md` lists every rule. The old one-folder-per-course layout with `module|||lesson` ids is legacy: don't author new content in it.
+
 ## Workflow
 
 1. Gather requirements (topic, audience, scope, modules)
-2. Create directory structure and `manifest.json`
-3. Write lesson markdown files
-4. Create quiz JSON files
-5. Add assets (cover image, diagrams)
-6. Validate with `pnpm validate-course <path>`
-7. Create a zip of the course: `cd <parent-dir> && zip -r <course-id>.zip <course-id>/`
+2. Create one folder per module under `modules/`, each with a `manifest.json`
+3. Write lesson markdown files and quiz JSON files in the module folders
+4. Create `courses/<course-id>/course.json` listing the module ids in order
+5. Add assets (images in each module's `assets/`, shared widgets in `widgets/`)
+6. Validate: `python3 course-validator/scripts/validate_course.py <repo>` (see the course-validator skill)
+7. Open a pull request on the tenant's content repo (`mycourse-work/<tenant>`). Merging to `main` publishes the course.
 
-## Course Directory Structure
+## Repository Structure
 
 ```
-{course-id}/
-├── manifest.json
-├── assets/
-│   ├── cover.png
-│   └── diagram.png
-├── 01_Module_Name/
-│   ├── 01_Lesson_Title.md
-│   ├── 02_Another_Lesson.md
-│   └── 03_Quiz.json
-└── 02_Second_Module/
-    ├── 01_First_Lesson.md
-    └── 02_Quiz.json
+<tenant repo>/
+├── courses/
+│   └── ai-for-business/
+│       ├── course.json
+│       └── welcome.md
+├── modules/
+│   ├── ai-basics/
+│   │   ├── manifest.json
+│   │   ├── 01-what-is-ai.md
+│   │   ├── 02-using-ai-safely.md
+│   │   ├── quiz.json
+│   │   └── assets/
+│   │       └── diagram.webp
+│   └── ai-at-work/
+│       └── ...
+└── widgets/
+    └── prompt-builder.html
 ```
 
 **Naming rules:**
-- Course ID: lowercase hyphenated slug (`ai-for-business`)
-- Modules: `{##}_{Name}` with underscores, zero-padded
-- Lessons: `{##}_{Title}.md`
-- Quizzes: `{##}_Quiz.json`
+- Course and module ids: lowercase kebab-case (`ai-for-business`). **The folder name must equal the id.**
+- Lessons: `NN-short-title.md`. Quizzes: `quiz.json`.
+- Don't rename an id after publishing: learner progress is stored against it.
 
-## Manifest
+## Manifests
 
-See [references/manifest-schema.md](references/manifest-schema.md) for the full manifest.json schema. Key rules:
+See [references/manifest-schema.md](references/manifest-schema.md) for `course.json` and the module `manifest.json`. Key rules:
 
-- `id` must match the folder name
-- Lesson IDs: `{moduleId}|||{lessonFileName}` (no extension)
-- Paths are absolute: `/courses/{courseId}/01_Module/01_Lesson.md`
-- Indices are 1-based and sequential
-- Lesson `type`: `"content"` or `"quiz"`
+- `course.json` has `id`, `title`, `description` and `modules` (module ids in order)
+- The quiz pass mark is set once per course: `quizPassingThreshold` (default 80)
+- Module lessons have `id`, `title`, `type` (`content` or `quiz`) and a path. Do not use `section`: the learner player shows it as an empty lesson
+- Paths are **relative to the module folder**: `"markdownPath": "01-what-is-ai.md"`. Never `/courses/...`
+- Lesson ids are plain (`what-is-ai`). The platform adds the module prefix itself
 
 ## Lesson Content
 
@@ -74,7 +80,7 @@ Paragraphs, lists, links, bold, italic — all standard markdown.
 - Summary 2
 ```
 
-**Rules:** Start with H1. Don't skip heading levels (H2 to H4 without H3). Target 800-1500 words per lesson.
+**Rules:** The first line is `# Title`. **No front matter** (`---` block): the player shows the raw file, so it would appear as text. Start with H1. Don't skip heading levels (H2 to H4 without H3). Target 800-1500 words per lesson.
 
 ### Callout Blockquotes
 
@@ -121,10 +127,10 @@ Display block: `$$\sum_{i=1}^{n} x_i$$`
 ### Images
 
 ```markdown
-![Alt text](/courses/{course-id}/assets/image.png)
+![Alt text](./assets/image.webp)
 ```
 
-Images are lazy-loaded, responsive, and rendered with rounded corners. Place files in the `assets/` directory.
+Images are lazy-loaded, responsive, and rendered with rounded corners. Place files in the module's `assets/` folder and always link them with `./` (`./assets/x.webp`). Only `./` is relative to the lesson: the player resolves a bare `assets/x.webp` or `../assets/x.webp` under the **course** folder, so it breaks for a module. The validator fails a link to a file that does not exist, resolved the way the player does.
 
 ### Video Embeds
 
@@ -159,33 +165,54 @@ Standard GFM tables with sticky headers, zebra striping, and hover highlighting:
 
 Standalone links on their own line render as preview cards with domain badges. All external links open in new tabs.
 
+## Widgets and Reflections
+
+Embed a shared widget from `widgets/<name>.html`:
+
+```markdown
+:::widget prompt-builder
+title: Prompt Builder
+description: Build a prompt one step at a time.
+:::
+```
+
+`title:` and `description:` make the activity card on phones. A widget must post `{type: "widget-ready"}` when it has loaded. See the player spec `docs/widget-focus-mode.md` in `mycourse-work/course.platform` for the full protocol.
+
+A reflection asks the learner to write before seeing a model answer. Its `data-id` must be unique across the course:
+
+```html
+<div class="reflection" data-id="ai-basics-first-use" data-min-chars="50">
+<div class="reflection-prompt">Where could AI save you an hour this week?</div>
+<div class="reflection-answer">
+
+**Model response:** ...
+
+</div>
+</div>
+```
+
 ## Quizzes
 
-See [references/quiz-schema.md](references/quiz-schema.md) for the full quiz JSON schema with examples of all three question types.
+See [references/quiz-schema.md](references/quiz-schema.md) for the full quiz JSON format with examples of all three question types.
 
 **Key points:**
+- The quiz file has `"type": "quiz"`, a `title` and `questions`
 - Three types: `MULTIPLE_CHOICE`, `MULTIPLE_RESPONSE`, `MATCHING`
 - Use `correct: true/false` (never `isCorrect`)
-- Always include `feedback` with explanations
+- Put the explanation in the question's `feedback`. Answer-level feedback is never shown
 - Answer IDs: `{questionId}_{letter}` (e.g. `q1_a`, `q1_b`)
-- 5-10 questions per module quiz, `passingScore` typically 70-80
-- Mix question types for engagement
+- 5-10 questions per module quiz. Mix question types for engagement
+- **Don't add `passingScore`.** The pass mark is `quizPassingThreshold` in `course.json`
 
 ## Validation
 
 ```bash
-pnpm validate-course content/tenants/{tenant}/courses/{course-id}
+python3 path/to/validate_course.py <repo-root>                 # everything
+python3 path/to/validate_course.py courses/ai-for-business     # one course and its modules
 ```
 
-Checks manifest structure, markdown quality (headings, images), mermaid syntax, and quiz correctness. Fix all errors before uploading.
+It checks the manifests, ids, file paths, lesson markdown (title line, no front matter, links, widgets, reflections) and quizzes. Fix every error before you open the pull request. See the course-validator skill.
 
-## Packaging
+## Publishing
 
-After validation passes, create a zip archive of the course folder:
-
-```bash
-cd content/tenants/{tenant}/courses
-zip -r {course-id}.zip {course-id}/
-```
-
-The zip contains everything needed to import the course: manifest, lessons, quizzes, and assets.
+Open a pull request on the tenant content repo. Its `validate.yml` check runs the validator on the changed courses and modules. When the pull request is merged to `main`, the sync workflow uploads the files and registers the course. There is no zip step for module-first content (the admin zip import is only for legacy courses).

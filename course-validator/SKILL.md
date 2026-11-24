@@ -1,90 +1,62 @@
 ---
 name: course-validator
-description: Validate course content for the mycourse.work platform. Checks manifest structure, markdown content quality (heading hierarchy, image references), mermaid diagram syntax, and quiz file correctness. Use when validating courses, checking course quality, debugging broken courses, or before uploading course content to R2.
+description: Validate module-first course content for the mycourse.work platform with a single stdlib Python script. Checks course.json and module manifests, ids, file paths, lesson markdown (title line, no front matter, links, widgets, reflections) and quiz correctness, using the same rules as the platform. Use when validating courses, checking course quality, debugging a broken course, or before opening a pull request on a tenant content repo.
 ---
 
 # Course Validator
 
-Validate course content structure, markdown quality, and mermaid diagrams for the mycourse.work course platform.
+`scripts/validate_course.py` validates module-first course content (format v1). It needs only Python 3.9+, with no packages. Its rules are in `schema/RULES.md` and match `scripts/validate-course.ts` in the platform repo.
 
 ## Usage
 
-Run from the platform repo root:
+Run it from a tenant content repo (the folder with `courses/`, `modules/` and `widgets/`):
 
 ```bash
-pnpm validate-course <path-to-course-folder>
+python3 validate_course.py .                              # every course and module
+python3 validate_course.py courses/ai-for-business        # one course and its modules
+python3 validate_course.py modules/ai-basics              # one module
+python3 validate_course.py --changed modules/ai-basics/quiz.json widgets/prompt-builder.html
+python3 validate_course.py --changed-from changed.txt --github   # what CI runs
 ```
 
-Example:
+| Option | What it does |
+|---|---|
+| `targets` | Repo root, course folder or `course.json`, module folder or `manifest.json`. |
+| `--repo-root DIR` | The repo root, if the script cannot find it from the targets. |
+| `--changed FILE...` | Validate what these files affect: a changed module also validates every course that lists it; a changed widget validates every course. Pass deleted files too: a deleted module makes it check every course that still lists it. Unrelated paths are skipped. |
+| `--changed-from LIST` | The same, reading the file list (one per line) from a file. |
+| `--json` | Print `{ok, version, errors, warnings, issues, stats}`. |
+| `--github` | Also print `::error` / `::warning` annotations for GitHub Actions. |
+| `--version` | Print the version. |
 
-```bash
-pnpm validate-course content/tenants/openclaw/courses/openclaw-security-hardening
-```
+Exit status: `0` no errors (warnings are allowed), `1` errors, `2` usage problem (for example, no course or module found).
 
-The script is at `scripts/validate-course.ts` and runs via `npx tsx`. It requires `marked`, `mermaid`, and `jsdom` (all already installed in the platform).
+## Errors and warnings
 
-## What It Validates
+**Errors** break the course or change what the learner gets. Fix every one before you open the pull request. The most common:
 
-### Manifest (`manifest.json`)
-- Valid JSON with required fields (`id`, `title`, `description`, `modules`)
-- `id` matches the course folder name
-- Valid hex color
-- Sequential module/lesson indices
-- No duplicate module or lesson IDs
-- Lesson ID format: `{moduleId}|||{lessonFileName}`
-- `markdownPath`/`quizPath` files exist on disk
+- A course or module `id` is not the same as its folder name
+- A module listed in `course.json` does not exist
+- A lesson path is absolute (`/courses/...`), a URL, `mailto:` or `#anchor`, or points to a missing file
+- An image or link points to a missing file. Only `./` is lesson-relative; a bare `assets/x` resolves under the course folder
+- A lesson starts with front matter (`---`)
+- An answer uses `isCorrect`, or a `MULTIPLE_CHOICE` question does not have exactly one correct answer
+- A `:::widget` names a widget that is not in `widgets/`
+- A reflection `data-id` is used twice in one course
 
-### Markdown Content (`.md` files)
-- Parses with `marked.lexer()`
-- First heading is H1
-- No empty headings
-- No skipped heading levels (e.g. H2 directly to H4)
-- Image references resolve to files on disk (for `/courses/{id}/...` paths)
-- Warns on external image URLs
-- Detects orphaned files not referenced in manifest
+**Warnings** are allowed, but have a look. The most common:
 
-### Mermaid Diagrams
-- Extracts fenced code blocks with `lang: mermaid`
-- Validates each with `mermaid.parse()`
-- Reports diagram type on success (flowchart, sequence, mindmap, etc.)
-- Reports parse errors with location info on failure
+- `passingScore` in a quiz: it is ignored. The pass mark is `quizPassingThreshold` in `course.json`
+- A question has no question-level `feedback` (answer-level feedback is never shown)
+- `TRUE_FALSE` question type: it plays as `MULTIPLE_CHOICE`
+- A `section` lesson: the learner player shows it as an empty lesson
+- A quiz with no top-level `"type": "quiz"` (nothing reads it), or a question `image` missing from `courses/<course>/assets/`
+- The first line of a lesson is not `# Title`
+- A missing course or module `description`, or an unknown field (often a typo)
+- A widget with no `title:` / `description:`, or a widget that does not handle the full-screen protocol
 
-### Quiz Files (`.json`)
-- Valid JSON with required fields (`title`, `type: "quiz"`, `passingScore`, `questions`)
-- Question types: `MULTIPLE_CHOICE`, `MULTIPLE_RESPONSE`, `MATCHING`
-- Uses `correct` field (not `isCorrect`)
-- `MULTIPLE_CHOICE` has exactly 1 correct answer
-- `MATCHING` questions have `matchText` on all answers
-- No duplicate question IDs, all answers have IDs and text
+The full list, with the platform code each rule comes from, is in [schema/RULES.md](../schema/RULES.md). The folder structure is in [references/course-structure.md](references/course-structure.md).
 
-### Directory Structure
-- `assets/` directory exists
-- Module directories follow `##_Name` pattern
-- No unexpected file types in module directories
+## In CI
 
-## Output
-
-Results are printed with icons:
-- `pass` — pass
-- `error` — error (causes non-zero exit)
-- `warning` — warning (advisory)
-
-Exit code is `1` if any errors found, `0` otherwise.
-
-## Fixing Common Errors
-
-| Error | Fix |
-|-------|-----|
-| `uses "isCorrect" instead of "correct"` | Rename `isCorrect` to `correct` in quiz JSON |
-| `markdownPath file not found` | Check path in manifest matches actual file location |
-| `mermaid diagram has syntax error` | Fix the mermaid syntax in the markdown file |
-| `skips heading level` | Add intermediate heading (e.g. add H3 between H2 and H4) |
-| `references missing image` | Add the image file or fix the path |
-
-## scripts/
-
-Contains the full validator source at [scripts/validate-course.ts](scripts/validate-course.ts). Copy to `scripts/validate-course.ts` in the platform repo if not already present.
-
-## references/
-
-See [references/course-structure.md](references/course-structure.md) for the expected course directory layout, manifest schema, lesson markdown format, and quiz JSON schema.
+Content repos pin a tagged version. See "Pinning the validator" in the repo README.
