@@ -33,7 +33,7 @@ The platform code is the source of truth. If this file and the platform disagree
 | `description` is missing | warning | no (optional) |
 | `modules` is a non-empty array of strings, with no duplicates | error | yes |
 | Every listed module exists at `modules/<id>/manifest.json` | error | no |
-| `welcomePath` (optional) is a relative file path (not a URL, `//host`, `mailto:`, `#anchor` or `/root` path) and the file exists | error | relative only |
+| `welcomePath` (optional) is a relative file path (not a URL, `//host`, `mailto:`, `#anchor` or `/root` path) that identifies an existing file inside the course folder | error | relative only |
 | `quizPassingThreshold` is a number from 0 to 100 | error | yes |
 | `quizMaxAttempts` is an integer ≥ 1 | error | yes |
 | `quizRevealMode` is `immediate`, `end-of-quiz` or `never` | error | yes |
@@ -57,6 +57,8 @@ The platform code is the source of truth. If this file and the platform disagree
 | A `content` lesson has `markdownPath`; a `quiz` lesson has `quizPath` | error | yes |
 | `markdownPath` / `quizPath` is a URL, `//host`, `mailto:` (any `scheme:`), `#anchor` or `/root` path | error | yes |
 | The path stays inside the module folder, and the file exists | error | no |
+
+Manifest file paths are checked against the filename as written, including any whitespace.
 
 ## Lesson Markdown
 

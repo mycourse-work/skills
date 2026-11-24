@@ -335,6 +335,19 @@ class StructureRules(Base):
         self.repo.course["welcomePath"] = "nope.md"
         self.assertError(self.repo.run(), "welcomePath does not exist")
 
+    def test_manifest_paths_must_match_the_filename_exactly(self) -> None:
+        self.repo.manifest["lessons"][0]["markdownPath"] = " 01-intro.md"
+        self.repo.manifest["lessons"][1]["quizPath"] = " quiz.json"
+        self.repo.course["welcomePath"] = " welcome.md"
+        result = self.repo.run()
+        self.assertError(result, "markdownPath does not exist:  01-intro.md")
+        self.assertError(result, "quizPath does not exist:  quiz.json")
+        self.assertError(result, "welcomePath does not exist:  welcome.md")
+
+    def test_welcome_path_stays_inside_the_course_folder(self) -> None:
+        self.repo.course["welcomePath"] = "../../modules/demo-module/01-intro.md"
+        self.assertError(self.repo.run(), "welcomePath must stay inside the course folder")
+
     def test_module_description_is_a_warning(self) -> None:
         del self.repo.manifest["description"]
         result = self.repo.run()

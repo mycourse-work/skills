@@ -174,11 +174,11 @@ def inside(candidate: Path, root: Path) -> bool:
 def lesson_file_path(base: Path, raw: str, repo_root: Path, path: Path, key: str, report: Report) -> Optional[Path]:
     """Resolve markdownPath / quizPath / welcomePath. The edge router prefixes them with the module or course
     folder, so anything but a plain relative file path is an error (a URL, //host, mailto:, #anchor, /root)."""
-    value = raw.strip()
-    if value.startswith("/") or value.startswith("#") or SCHEME_RE.match(value):
+    # The edge router uses the manifest value as written, including whitespace.
+    if raw.startswith("/") or raw.startswith("#") or SCHEME_RE.match(raw):
         report.error(path, f"{key} must be a relative file path, got {raw!r}")
         return None
-    candidate = (base / value).resolve()
+    candidate = (base / raw).resolve()
     if not inside(candidate, repo_root):
         report.error(path, f"{key} escapes the repository: {raw!r}")
         return None
@@ -620,7 +620,9 @@ def validate_course(course_file: Path, repo_root: Path, report: Report, cache: D
         else:
             welcome_path = lesson_file_path(course_dir, welcome, repo_root, course_file, "welcomePath", report)
             if welcome_path is not None:
-                if not welcome_path.is_file():
+                if not inside(welcome_path, course_dir):
+                    report.error(course_file, f"welcomePath must stay inside the course folder: {welcome!r}")
+                elif not welcome_path.is_file():
                     report.error(course_file, f"welcomePath does not exist: {welcome}")
                 else:
                     validate_markdown(welcome_path, repo_root, {}, report, [course_dir])
